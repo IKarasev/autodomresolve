@@ -152,7 +152,7 @@ flush set {self.nft_table} filter {self.nft_set}
 add element {self.nft_table} filter {self.nft_set} {{ {", ".join(ips)} }}
 """
         try:
-            subprocess.run(["echo", "-e"], input=ruleset.encode(), check=True)
+            subprocess.run(["nft", "-f", "-"], input=ruleset.encode(), check=True)
         except subprocess.CalledProcessError as e:
             logging.error(msg=f"nftables set update failed: {e}")
         except Exception as e:
