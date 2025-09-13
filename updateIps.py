@@ -4,8 +4,9 @@ import os
 import socket
 import subprocess
 
+CONFIG_PATH = "./config.json"
 LOG_PATH = "./log.log"
-CONFIG_PATH = "./domains.json"
+TIMEOUT = 600
 
 NFT_TABLE = "inet"
 NFT_CHAIN = "input"
@@ -16,6 +17,18 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
+
+
+class Config:
+    log_path = LOG_PATH
+    timeout = TIMEOUT
+    ha_maps: list[dict] = []
+    ha_sockpath: str = ""
+    nft_set: str = ""
+
+    def __init__(self, confpath="") -> None:
+        if not confpath:
+            confpath = CONFIG_PATH
 
 
 class HAProxy:
@@ -72,26 +85,26 @@ def read_config_json(file_path):
     return data
 
 
-def resolve_domains(conf) -> dict[str, list[str]]:
-    ips: dict[str, list[str]] = {}
-    for target, domains in conf["domains"].items():
-        t_ips = []
-        for dom in set(domains):
-            try:
-                ip = socket.gethostbyname(dom)
-                t_ips.append(ip)
-            except Exception as e:
-                logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
-        if t_ips:
-            ips[target] = t_ips
+def resolve_domains(domains: list[str]) -> list[str]:
+    ips: list[str] = []
+    for dom in domains:
+        try:
+            ip = socket.gethostbyname(dom)
+            ips.append(ip)
+        except Exception as e:
+            logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
     return ips
+
+
+def get_target_ips(targets: dict[str, list[str]]):
+    pass
 
 
 def update_nftables(set_name: str, target_ips: dict[str, list[str]]):
     ips = []
     for vals in target_ips.values():
         ips.extend(vals)
-    ips = set(ips)
+    ips = list(set(ips))
     ruleset = f"""
 flush set {NFT_TABLE} filter {set_name}
 add element {NFT_TABLE} filter {set_name} {{ {", ".join(ips)} }}
@@ -107,17 +120,17 @@ add element {NFT_TABLE} filter {set_name} {{ {", ".join(ips)} }}
 def main():
     config = read_config_json(CONFIG_PATH)
 
-    if not config:
-        return
+    # if not config:
+    #     return
+    #
+    # ip_list = resolve_domains(config)
+    # update_nftables(config["nft"]["set"], ip_list)
 
-    ip_list = resolve_domains(config)
-    update_nftables(config["nft"]["set"], ip_list)
-
-    try:
-        hap = HAProxy()
-        hap.replace_ip_map(config["ha"]["mapfile"], ip_list)
-    except Exception as e:
-        logging.error(msg=f"Failed to update HAProxy: {e}")
+    # try:
+    #     hap = HAProxy()
+    #     hap.replace_ip_map(config["ha"]["mapfile"], ip_list)
+    # except Exception as e:
+    #     logging.error(msg=f"Failed to update HAProxy: {e}")
 
 
 if __name__ == "__main__":
