@@ -1,0 +1,20 @@
+{
+    "updateTime": 600,
+    "nftSet": "setname",
+    "nftTable": "inet",
+    "nftFamily": "filter",
+    "nftChain": "input",
+    "haSocketPath": "/var/run/haproxy.sock",
+    "haMap": [
+        {
+            "mapfile": "mapfile1",
+            "domains": [],
+            "ips": []
+        },
+        {
+            "mapfile": "mapfile2",
+            "domains": [],
+            "ips": []
+        }
+    ]
+}

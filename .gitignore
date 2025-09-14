@@ -4,5 +4,5 @@ __pycache__/
 *$py.class
 
 *.log
-*.json
+config.json
 .mypy_cache/
