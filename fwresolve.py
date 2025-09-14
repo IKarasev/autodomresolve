@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import ipaddress
 import json
 import logging
@@ -14,7 +16,7 @@ UPDATE_TIME = 7200
 NFT_TABLE = "inet"
 NFT_FAMILY = "filter"
 NFT_CHAIN = "input"
-NFT_SET = "hadomain"
+NFT_SET = "hadomains"
 
 HA_SOCK_PATH = "/run/haproxy/admin.sock"
 
