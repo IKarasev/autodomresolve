@@ -4,7 +4,7 @@
     "nftTable": "inet",
     "nftFamily": "filter",
     "nftChain": "input",
-    "haSocketPath": "/var/run/haproxy.sock",
+    "haSockPath": "/var/run/haproxy.sock",
     "haMap": [
         {
             "mapfile": "mapfile1",

@@ -1,6 +1,7 @@
 import ipaddress
 import json
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -12,7 +13,9 @@ UPDATE_TIME = 600
 NFT_TABLE = "inet"
 NFT_FAMILY = "filter"
 NFT_CHAIN = "input"
-NFT_SET = "haset"
+NFT_SET = "hadomain"
+
+HA_SOCK_PATH = "/run/haproxy/admin.sock"
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -31,6 +34,60 @@ def read_config_json(file_path):
     except json.JSONDecodeError as e:
         logging.error(msg=f"failed to parse config {e}")
     return data
+
+
+class HAProxy:
+    def __init__(self, sock_path="/var/run/haproxy.sock") -> None:
+        if not os.path.exists(sock_path):
+            raise FileNotFoundError(f"HAProxy sock file not found: {sock_path}")
+        self.sock_path = sock_path
+
+    def _send_cmd(self, cmd: str) -> str:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(self.sock_path)
+            s.sendall((cmd + "\n").encode())
+            data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        return data.decode()
+
+    def show_map(self, map_file: str) -> str:
+        return self._send_cmd(f"show map {map_file}")
+
+    def add_map_item(self, map_file: str, key: str, value: str):
+        return self._send_cmd(f"add map {map_file} {key} {value}")
+
+    def del_map_item(self, map_file: str, key: str):
+        return self._send_cmd(f"del map {map_file} {key}")
+
+    def clear_map(self, map_file: str):
+        return self._send_cmd(f"clear map {map_file}")
+
+    def bulk_renew_map(self, map_file: str, ips: list[str]):
+        resp = self._send_cmd(f"prepare map {map_file}")
+        if resp == "" or resp.startswith("Unknow"):
+            logging.error(
+                msg=f"failed to bulk renew map {map_file}: map does not exist"
+            )
+            return
+
+        cid = resp.split()[-1]
+        print(cid)
+
+        if not cid.isdigit():
+            logging.warning(msg=f"failed to get temp map {map_file} id: {cid}")
+            return
+
+        self._send_cmd(f"clear map @{cid} {map_file}")
+
+        for i in ips:
+            self._send_cmd(f"add map @{cid} {map_file} {i} ok")
+        resp = self._send_cmd(f"commit map @{cid} {map_file}")
+        if len(resp.strip()) > 0:
+            logging.warning(msg=f"failed to commit map {map_file}: {resp}")
 
 
 class HaMap:
@@ -72,7 +129,7 @@ class HaMap:
         return hm
 
 
-class HaResolve:
+class DomainIpUpdater:
     update_time: int
     ha_maps: list[HaMap] = []
     ha_sockpath: str
@@ -95,7 +152,7 @@ class HaResolve:
         self.nft_set = cfg_file.get("nftSet", NFT_SET)
         self.nft_table = cfg_file.get("nftTable", NFT_TABLE)
         self.nft_family = cfg_file.get("nftFamily", NFT_FAMILY)
-        # self.nft_chain = cfg_file.get("nftChain", NFT_CHAIN)
+        self.ha_sockpath = cfg_file.get("haSockPath", HA_SOCK_PATH)
 
         if isinstance(cfg_file.get("haMap"), list):
             for item in cfg_file["haMap"]:
@@ -158,11 +215,31 @@ add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)
         except Exception as e:
             logging.error(msg=f"failed to call nftables: {e}")
 
+    def update_ha(self) -> None:
+        try:
+            hap = HAProxy(self.ha_sockpath)
+        except Exception as e:
+            logging.error(msg=f"failed to update HaProxy: {e}")
+            return
+
+        for mp in self.ha_maps:
+            ips = []
+            for i in mp.ips:
+                ips.append(i)
+            for d in mp.domains:
+                i = self.resolved.get(d, "")
+                if i == "":
+                    continue
+                ips.append(i)
+            ips = list(set(ips))
+            hap.bulk_renew_map(mp.mapfile, ips)
+
 
 if __name__ == "__main__":
-    har = HaResolve(CONFIG_PATH)
+    har = DomainIpUpdater(CONFIG_PATH)
     if len(sys.argv) > 1:
         if sys.argv[1] == "once":
-            pass
+            print("run once")
     else:
         har.update_nft_set()
+        har.update_ha()
