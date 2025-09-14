@@ -1,9 +1,9 @@
 import ipaddress
 import json
 import logging
-import os
 import socket
 import subprocess
+import sys
 from pprint import pprint
 
 from updateIps import resolve_domains
@@ -160,5 +160,9 @@ add element {self.nft_table} filter {self.nft_set} {{ {", ".join(ips)} }}
 
 
 if __name__ == "__main__":
-    ha_res = HaResolve(CONFIG_PATH)
-    ha_res.update_nft_set()
+    har = HaResolve(CONFIG_PATH)
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "once":
+            pass
+    else:
+        har.update_nft_set()
