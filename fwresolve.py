@@ -5,10 +5,11 @@ import os
 import socket
 import subprocess
 import sys
+import time
 
-CONFIG_PATH = "./config.json"
-LOG_PATH = "./log.log"
-UPDATE_TIME = 600
+CONFIG_PATH = "/etc/fwresolve/config.json"
+LOG_PATH = "/var/log/fwresolve.log"
+UPDATE_TIME = 7200
 
 NFT_TABLE = "inet"
 NFT_FAMILY = "filter"
@@ -234,12 +235,23 @@ add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)
             ips = list(set(ips))
             hap.bulk_renew_map(mp.mapfile, ips)
 
+    def update_all(self):
+        self.update_nft_set()
+        self.update_ha()
 
-if __name__ == "__main__":
-    har = DomainIpUpdater(CONFIG_PATH)
+
+def main():
     if len(sys.argv) > 1:
         if sys.argv[1] == "once":
-            print("run once")
-    else:
-        har.update_nft_set()
-        har.update_ha()
+            har = DomainIpUpdater(CONFIG_PATH)
+            har.update_all()
+        return
+
+    while True:
+        har = DomainIpUpdater(CONFIG_PATH)
+        har.update_all()
+        time.sleep(UPDATE_TIME)
+
+
+if __name__ == "__main__":
+    main()
