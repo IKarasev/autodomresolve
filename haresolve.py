@@ -4,15 +4,13 @@ import logging
 import socket
 import subprocess
 import sys
-from pprint import pprint
-
-from updateIps import resolve_domains
 
 CONFIG_PATH = "./config.json"
 LOG_PATH = "./log.log"
 UPDATE_TIME = 600
 
 NFT_TABLE = "inet"
+NFT_FAMILY = "filter"
 NFT_CHAIN = "input"
 NFT_SET = "haset"
 
@@ -80,6 +78,7 @@ class HaResolve:
     ha_sockpath: str
     nft_set: str
     nft_table: str
+    nft_family: str
     nft_chain: str
     resolved: dict[str, str] = {}
 
@@ -95,7 +94,8 @@ class HaResolve:
         self.update_time = cfg_file.get("updateTime", UPDATE_TIME)
         self.nft_set = cfg_file.get("nftSet", NFT_SET)
         self.nft_table = cfg_file.get("nftTable", NFT_TABLE)
-        self.nft_chain = cfg_file.get("nftChain", NFT_CHAIN)
+        self.nft_family = cfg_file.get("nftFamily", NFT_FAMILY)
+        # self.nft_chain = cfg_file.get("nftChain", NFT_CHAIN)
 
         if isinstance(cfg_file.get("haMap"), list):
             for item in cfg_file["haMap"]:
@@ -148,8 +148,8 @@ class HaResolve:
     def update_nft_set(self) -> None:
         ips = self.unique_ips()
         ruleset = f"""
-flush set {self.nft_table} filter {self.nft_set}
-add element {self.nft_table} filter {self.nft_set} {{ {", ".join(ips)} }}
+flush set {self.nft_table} {self.nft_family} {self.nft_set}
+add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)} }}
 """
         try:
             subprocess.run(["nft", "-f", "-"], input=ruleset.encode(), check=True)
