@@ -76,7 +76,6 @@ class HAProxy:
             return
 
         cid = resp.split()[-1]
-        print(cid)
 
         if not cid.isdigit():
             logging.warning(msg=f"failed to get temp map {map_file} id: {cid}")
@@ -141,6 +140,9 @@ class DomainIpUpdater:
     resolved: dict[str, str] = {}
 
     def __init__(self, confpath="") -> None:
+        self.reload_config(confpath)
+
+    def reload_config(self, confpath="") -> None:
         if not confpath:
             confpath = CONFIG_PATH
 
@@ -239,18 +241,21 @@ add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)
         self.update_nft_set()
         self.update_ha()
 
+    def run(self, confpath):
+        while True:
+            self.reload_config(confpath)
+            self.update_all()
+            time.sleep(self.update_time)
+
 
 def main():
+    har = DomainIpUpdater(CONFIG_PATH)
     if len(sys.argv) > 1:
         if sys.argv[1] == "once":
-            har = DomainIpUpdater(CONFIG_PATH)
             har.update_all()
         return
 
-    while True:
-        har = DomainIpUpdater(CONFIG_PATH)
-        har.update_all()
-        time.sleep(UPDATE_TIME)
+    har.run(CONFIG_PATH)
 
 
 if __name__ == "__main__":
