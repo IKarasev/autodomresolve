@@ -69,7 +69,7 @@ class HAProxy:
     def clear_map(self, map_file: str):
         return self._send_cmd(f"clear map {map_file}")
 
-    def bulk_renew_map(self, map_file: str, ips: list[str]):
+    def bulk_renew_map(self, map_file: str, data: dict[str, str]):
         resp = self._send_cmd(f"prepare map {map_file}")
         if resp == "" or resp.startswith("Unknow"):
             logging.error(
@@ -85,8 +85,8 @@ class HAProxy:
 
         self._send_cmd(f"clear map @{cid} {map_file}")
 
-        for i in ips:
-            self._send_cmd(f"add map @{cid} {map_file} {i} ok")
+        for key, val in data.items():
+            self._send_cmd(f"add map @{cid} {map_file} {key} {val}")
         resp = self._send_cmd(f"commit map @{cid} {map_file}")
         if len(resp.strip()) > 0:
             logging.warning(msg=f"failed to commit map {map_file}: {resp}")
@@ -129,6 +129,12 @@ class HaMap:
                         msg=f'invalid ip address in hm config mapfile "{hm.mapfile}": "{ip}". Skipping'
                     )
         return hm
+
+    def domains_dict(self) -> dict[str, str]:
+        domains = {}
+        for d in self.domains:
+            domains[d] = ""
+        return domains
 
 
 class DomainIpUpdater:
@@ -228,15 +234,14 @@ add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)
             return
 
         for mp in self.ha_maps:
-            ips = []
+            ips: dict[str, str] = {}
             for i in mp.ips:
-                ips.append(i)
+                ips[i] = "ok"
             for d in mp.domains:
                 i = self.resolved.get(d, "")
                 if i == "":
                     continue
-                ips.append(i)
-            ips = list(set(ips))
+                ips[i] = d
             hap.bulk_renew_map(mp.mapfile, ips)
 
     def update_all(self):
