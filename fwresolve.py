@@ -45,16 +45,17 @@ class HAProxy:
             raise FileNotFoundError(f"HAProxy sock file not found: {sock_path}")
         self.sock_path = sock_path
 
+    # TODO: uncomment!!!!
     def _send_cmd(self, cmd: str) -> str:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.connect(self.sock_path)
-            s.sendall((cmd + "\n").encode())
-            data = b""
-            while True:
-                chunk = s.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
+        data = b""
+        # with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        #     s.connect(self.sock_path)
+        #     s.sendall((cmd + "\n").encode())
+        #     while True:
+        #         chunk = s.recv(4096)
+        #         if not chunk:
+        #             break
+        #         data += chunk
         return data.decode()
 
     def show_map(self, map_file: str) -> str:
@@ -137,20 +138,93 @@ class HaMap:
         return domains
 
 
+class NftSet:
+    domains: list[str] = []
+    ips: list[str] = []
+
+    def __init__(self, table: str, family: str, name: str) -> None:
+        self.table = table
+        self.family = family
+        self.name = name
+
+    def __str__(self) -> str:
+        return f"table={self.table},family={self.family},name={self.name}"
+
+    def set_domains(self, domains) -> None:
+        if isinstance(domains, list):
+            self.domains = list(set(domains))
+
+    def set_ips(self, ips) -> None:
+        if not isinstance(ips, list):
+            return
+
+        self.ips = []
+        ips = list(set(ips))
+        for ip in ips:
+            try:
+                ipaddress.ip_address(ip)
+                self.ips.append(ip)
+            except:
+                logging.warning(
+                    msg=f'invalid ip address in nft set[{self}]: "{ip}". Skipping'
+                )
+
+    def update(self, resolved: dict[str, str] = {}):
+        ips: list[str] = self.ips.copy()
+
+        for dom in self.domains:
+            ip = resolved.get(dom)
+            if ip:
+                ips.append(ip)
+
+        ips = list(set(ips))
+
+        ruleset = f"""
+flush set {self.table} {self.family} {self.name}
+add element {self.table} {self.family} {self.name} {{ {", ".join(ips)} }}
+"""
+        try:
+            subprocess.run(["nft", "-f", "-"], input=ruleset.encode(), check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(msg=f"nftables set [{self}] update failed: {e}")
+        except Exception as e:
+            logging.error(msg=f"failed to call nftables on set [{self}] update: {e}")
+
+    @classmethod
+    def from_dict(cls, d):
+        if not isinstance(d, dict):
+            return None
+
+        table = d.get("table")
+        family = d.get("family")
+        name = d.get("name")
+
+        if not table:
+            return None
+        if not family:
+            return None
+        if not name:
+            return None
+
+        ns = NftSet(table, family, name)
+        ns.set_domains(d.get("domains", []))
+        ns.set_ips(d.get("ips", []))
+        return ns
+
+
 class DomainIpUpdater:
     update_time: int
+    nft_sets: list[NftSet] = []
     ha_maps: list[HaMap] = []
+    ha_nft_set: NftSet
     ha_sockpath: str
-    nft_set: str
-    nft_table: str
-    nft_family: str
-    nft_chain: str
-    resolved: dict[str, str] = {}
+    ha_resolved: dict[str, str] = {}
+    nft_resolved: dict[str, str] = {}
 
     def __init__(self, confpath="") -> None:
-        self.reload_config(confpath)
+        self.load_config(confpath)
 
-    def reload_config(self, confpath="") -> None:
+    def load_config(self, confpath="") -> None:
         if not confpath:
             confpath = CONFIG_PATH
 
@@ -160,10 +234,12 @@ class DomainIpUpdater:
             return
 
         self.update_time = cfg_file.get("updateTime", UPDATE_TIME)
-        self.nft_set = cfg_file.get("nftSet", NFT_SET)
-        self.nft_table = cfg_file.get("nftTable", NFT_TABLE)
-        self.nft_family = cfg_file.get("nftFamily", NFT_FAMILY)
         self.ha_sockpath = cfg_file.get("haSockPath", HA_SOCK_PATH)
+        self.ha_nft_set = NftSet(
+            table=cfg_file.get("nftTable", NFT_TABLE),
+            family=cfg_file.get("nftFamily", NFT_FAMILY),
+            name=cfg_file.get("nftSet", NFT_SET),
+        )
 
         if isinstance(cfg_file.get("haMap"), list):
             for item in cfg_file["haMap"]:
@@ -171,18 +247,22 @@ class DomainIpUpdater:
                 if hm is not None:
                     self.ha_maps.append(hm)
 
-        self.resolved = self.resolve_domains()
+        if isinstance(cfg_file.get("nftSetList"), list):
+            for item in cfg_file["nftSetList"]:
+                ns = NftSet.from_dict(item)
+                if ns is not None:
+                    ns.set_domains(item.get("domains", []))
+                    ns.set_ips(item.get("ips", []))
+                    self.nft_sets.append(ns)
+
+        self.ha_resolved = self.resolve_ha_domains()
+        self.nft_resolved = self.resolve_nft_domains()
 
     def __str__(self) -> str:
         s = (
             f"upd_time: {self.update_time}"
             + "\n-- nft:"
-            + "\nset: "
-            + self.nft_set
-            + "\ntable: "
-            + self.nft_table
-            + "\nchain: "
-            + self.nft_chain
+            + f"\nset: {self.ha_nft_set}"
             + "\n-- HA:\n"
             + f"ha_sockpath: {self.ha_sockpath}"
             + "\nmaps:"
@@ -191,13 +271,10 @@ class DomainIpUpdater:
             s += "\n ---" + hm.__str__()
         return s
 
-    def resolve_domains(self) -> dict[str, str]:
+    def resolve(self, domains: list[str]) -> dict[str, str]:
         result: dict[str, str] = {}
-        domains = []
-        for hm in self.ha_maps:
-            domains.extend(hm.domains)
-        domains = list(set(domains))
-        for dom in domains:
+        _domains = list(set(domains))
+        for dom in _domains:
             try:
                 ip = socket.gethostbyname(dom)
                 result[dom] = ip
@@ -205,26 +282,32 @@ class DomainIpUpdater:
                 logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
         return result
 
-    def unique_ips(self) -> list[str]:
+    def resolve_ha_domains(self) -> dict[str, str]:
+        domains = []
+        for hm in self.ha_maps:
+            domains.extend(hm.domains)
+        return self.resolve(domains)
+
+    def resolve_nft_domains(self) -> dict[str, str]:
+        domains = []
+        for nft in self.nft_sets:
+            domains.extend(nft.domains)
+        return self.resolve(domains)
+
+    def ha_ips_all(self) -> list[str]:
         result: list[str] = []
-        result.extend(self.resolved.values())
+        result.extend(self.ha_resolved.values())
         for hm in self.ha_maps:
             result.extend(hm.ips)
-        result = list(set(result))
         return result
 
-    def update_nft_set(self) -> None:
-        ips = self.unique_ips()
-        ruleset = f"""
-flush set {self.nft_table} {self.nft_family} {self.nft_set}
-add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)} }}
-"""
-        try:
-            subprocess.run(["nft", "-f", "-"], input=ruleset.encode(), check=True)
-        except subprocess.CalledProcessError as e:
-            logging.error(msg=f"nftables set update failed: {e}")
-        except Exception as e:
-            logging.error(msg=f"failed to call nftables: {e}")
+    def update_nft(self) -> None:
+        ips = self.ha_ips_all()
+        self.ha_nft_set.set_ips(ips)
+        self.ha_nft_set.update()
+
+        for nft in self.nft_sets:
+            nft.update(self.nft_resolved)
 
     def update_ha(self) -> None:
         try:
@@ -238,19 +321,19 @@ add element {self.nft_table} {self.nft_family} {self.nft_set} {{ {", ".join(ips)
             for i in mp.ips:
                 ips[i] = "ok"
             for d in mp.domains:
-                i = self.resolved.get(d, "")
+                i = self.ha_resolved.get(d, "")
                 if i == "":
                     continue
                 ips[i] = d
             hap.bulk_renew_map(mp.mapfile, ips)
 
     def update_all(self):
-        self.update_nft_set()
+        self.update_nft()
         self.update_ha()
 
     def run(self, confpath):
         while True:
-            self.reload_config(confpath)
+            self.load_config(confpath)
             self.update_all()
             time.sleep(self.update_time)
 
