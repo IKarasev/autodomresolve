@@ -45,17 +45,16 @@ class HAProxy:
             raise FileNotFoundError(f"HAProxy sock file not found: {sock_path}")
         self.sock_path = sock_path
 
-    # TODO: uncomment!!!!
     def _send_cmd(self, cmd: str) -> str:
         data = b""
-        # with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-        #     s.connect(self.sock_path)
-        #     s.sendall((cmd + "\n").encode())
-        #     while True:
-        #         chunk = s.recv(4096)
-        #         if not chunk:
-        #             break
-        #         data += chunk
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(self.sock_path)
+            s.sendall((cmd + "\n").encode())
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
         return data.decode()
 
     def show_map(self, map_file: str) -> str:
