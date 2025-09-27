@@ -303,8 +303,11 @@ class DomainIpUpdater:
 
     def update_nft(self) -> None:
         ips = self.ha_ips_all()
-        self.ha_nft_set.set_ips(ips)
-        self.ha_nft_set.update()
+        if self.ha_nft_set:
+            self.ha_nft_set.set_ips(ips)
+            self.ha_nft_set.update()
+        else:
+            logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
 
         for nft in self.nft_sets:
             nft.update(self.nft_resolved)
