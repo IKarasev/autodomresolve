@@ -39,6 +39,18 @@ def read_config_json(file_path):
     return data
 
 
+def resolve_domains(domains: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    _domains = list(set(domains))
+    for dom in _domains:
+        try:
+            ip = socket.gethostbyname(dom)
+            result[dom] = ip
+        except Exception as e:
+            logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
+    return result
+
+
 class HAProxy:
     def __init__(self, sock_path="/var/run/haproxy.sock") -> None:
         if not os.path.exists(sock_path):
@@ -270,28 +282,17 @@ class DomainIpUpdater:
             s += "\n ---" + hm.__str__()
         return s
 
-    def resolve(self, domains: list[str]) -> dict[str, str]:
-        result: dict[str, str] = {}
-        _domains = list(set(domains))
-        for dom in _domains:
-            try:
-                ip = socket.gethostbyname(dom)
-                result[dom] = ip
-            except Exception as e:
-                logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
-        return result
-
     def resolve_ha_domains(self) -> dict[str, str]:
         domains = []
         for hm in self.ha_maps:
             domains.extend(hm.domains)
-        return self.resolve(domains)
+        return resolve_domains(domains)
 
     def resolve_nft_domains(self) -> dict[str, str]:
         domains = []
         for nft in self.nft_sets:
             domains.extend(nft.domains)
-        return self.resolve(domains)
+        return resolve_domains(domains)
 
     def ha_ips_all(self) -> list[str]:
         result: list[str] = []

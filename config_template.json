@@ -5,6 +5,15 @@
     "nftFamily": "filter",
     "nftChain": "input",
     "haSockPath": "/var/run/haproxy.sock",
+    "nftSetList": [
+        {
+            "table": "",
+            "family": "",
+            "name": "",
+            "domains": [],
+            "ips": []
+        }
+    ],
     "haMap": [
         {
             "mapfile": "mapfile1",
