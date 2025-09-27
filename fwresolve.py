@@ -227,7 +227,7 @@ class DomainIpUpdater:
     update_time: int
     nft_sets: list[NftSet] = []
     ha_maps: list[HaMap] = []
-    ha_nft_set: NftSet
+    ha_nft_set: NftSet | None = None
     ha_sockpath: str
     ha_resolved: dict[str, str] = {}
     nft_resolved: dict[str, str] = {}
@@ -303,11 +303,11 @@ class DomainIpUpdater:
 
     def update_nft(self) -> None:
         ips = self.ha_ips_all()
-        if self.ha_nft_set:
+        if self.ha_nft_set is None:
+            logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
+        else:
             self.ha_nft_set.set_ips(ips)
             self.ha_nft_set.update()
-        else:
-            logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
 
         for nft in self.nft_sets:
             nft.update(self.nft_resolved)
