@@ -231,6 +231,8 @@ class DomainIpUpdater:
     ha_sockpath: str
     ha_resolved: dict[str, str] = {}
     nft_resolved: dict[str, str] = {}
+    do_ha: bool = True
+    do_nft: bool = True
 
     def __init__(self, confpath="") -> None:
         self.load_config(confpath)
@@ -244,6 +246,8 @@ class DomainIpUpdater:
         if not cfg_file:
             return
 
+        self.do_ha = cfg_file.get("doHa", True)
+        self.do_nft = cfg_file.get("doNft", True)
         self.update_time = cfg_file.get("updateTime", UPDATE_TIME)
         self.ha_sockpath = cfg_file.get("haSockPath", HA_SOCK_PATH)
         self.ha_nft_set = NftSet(
@@ -302,17 +306,24 @@ class DomainIpUpdater:
         return result
 
     def update_nft(self) -> None:
-        ips = self.ha_ips_all()
-        if self.ha_nft_set is None:
-            logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
-        else:
-            self.ha_nft_set.set_ips(ips)
-            self.ha_nft_set.update()
+        if not self.do_nft:
+            return
+
+        if self.do_ha:
+            ips = self.ha_ips_all()
+            if self.ha_nft_set is None:
+                logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
+            else:
+                self.ha_nft_set.set_ips(ips)
+                self.ha_nft_set.update()
 
         for nft in self.nft_sets:
             nft.update(self.nft_resolved)
 
     def update_ha(self) -> None:
+        if not self.do_ha:
+            print("No ha!")
+
         try:
             hap = HAProxy(self.ha_sockpath)
         except Exception as e:

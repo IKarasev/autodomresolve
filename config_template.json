@@ -1,5 +1,7 @@
 {
     "updateTime": 600,
+    "doHa": true,
+    "doNft": true,
     "nftSet": "setname",
     "nftTable": "inet",
     "nftFamily": "filter",
