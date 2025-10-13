@@ -194,7 +194,7 @@ class NftSet:
 
         ruleset = f"""
 flush set {self.table} {self.family} {self.name}"""
-        
+
         if len(ips) > 0:
             ruleset += f"""
 add element {self.table} {self.family} {self.name} {{ {", ".join(ips)} }}
