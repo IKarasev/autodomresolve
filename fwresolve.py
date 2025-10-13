@@ -312,7 +312,9 @@ class DomainIpUpdater:
         if self.do_ha:
             ips = self.ha_ips_all()
             if self.ha_nft_set is None:
-                logging.error(msg="DomainIpUpdater: update_nft: haproxy nft set is empty")
+                logging.error(
+                    msg="DomainIpUpdater: update_nft: haproxy nft set is empty"
+                )
             else:
                 self.ha_nft_set.set_ips(ips)
                 self.ha_nft_set.update()
@@ -322,7 +324,7 @@ class DomainIpUpdater:
 
     def update_ha(self) -> None:
         if not self.do_ha:
-            print("No ha!")
+            return
 
         try:
             hap = HAProxy(self.ha_sockpath)
