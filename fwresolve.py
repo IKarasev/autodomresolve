@@ -21,7 +21,7 @@ NFT_SET = "hadomains"
 HA_SOCK_PATH = "/run/haproxy/admin.sock"
 
 logging.basicConfig(
-    # filename=LOG_PATH,
+    filename=LOG_PATH,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
