@@ -21,7 +21,7 @@ NFT_SET = "hadomains"
 HA_SOCK_PATH = "/run/haproxy/admin.sock"
 
 logging.basicConfig(
-    filename=LOG_PATH,
+    # filename=LOG_PATH,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
@@ -39,16 +39,28 @@ def read_config_json(file_path):
     return data
 
 
-def resolve_domains(domains: list[str]) -> dict[str, str]:
-    result: dict[str, str] = {}
+def resolve_domains(domains: list[str]) -> dict[str, list[str]]:
+    """Resolve ip addresses for given domain names.
+
+    Args:
+        domains: list[str] - list of domain names
+
+    Returns:
+        dict[str,list[str]]
+    """
+    result: dict[str, list[str]] = {}
     _domains = list(set(domains))
     for dom in _domains:
         try:
-            ip = socket.gethostbyname(dom)
-            result[dom] = ip
+            _, _, ip_list = socket.gethostbyname_ex(dom)
+            result[dom] = ip_list
         except Exception as e:
             logging.warning(msg=f'ip resolve failed for "{dom}": {e}')
     return result
+
+
+def unwrap_resolved(resolved: dict[str, list[str]]) -> list[str]:
+    return [ip for ipl in resolved.values() for ip in ipl]
 
 
 class HAProxy:
@@ -180,17 +192,15 @@ class NftSet:
                     msg=f'invalid ip address in nft set[{self}]: "{ip}". Skipping'
                 )
 
-    def update(self, resolved: dict[str, str] = {}):
+    def update(self, resolved: dict[str, list[str]] = {}):
         ips: list[str] = self.ips.copy()
 
         for dom in self.domains:
             ip = resolved.get(dom)
             if ip:
-                ips.append(ip)
+                ips.extend(ip)
 
         ips = list(set(ips))
-
-
 
         ruleset = f"""
 flush set {self.table} {self.family} {self.name}"""
@@ -234,8 +244,8 @@ class DomainIpUpdater:
     ha_maps: list[HaMap] = []
     ha_nft_set: NftSet | None = None
     ha_sockpath: str
-    ha_resolved: dict[str, str] = {}
-    nft_resolved: dict[str, str] = {}
+    ha_resolved: dict[str, list[str]] = {}
+    nft_resolved: dict[str, list[str]] = {}
     do_ha: bool = True
     do_nft: bool = True
 
@@ -291,13 +301,13 @@ class DomainIpUpdater:
             s += "\n ---" + hm.__str__()
         return s
 
-    def resolve_ha_domains(self) -> dict[str, str]:
+    def resolve_ha_domains(self) -> dict[str, list[str]]:
         domains = []
         for hm in self.ha_maps:
             domains.extend(hm.domains)
         return resolve_domains(domains)
 
-    def resolve_nft_domains(self) -> dict[str, str]:
+    def resolve_nft_domains(self) -> dict[str, list[str]]:
         domains = []
         for nft in self.nft_sets:
             domains.extend(nft.domains)
@@ -305,7 +315,7 @@ class DomainIpUpdater:
 
     def ha_ips_all(self) -> list[str]:
         result: list[str] = []
-        result.extend(self.ha_resolved.values())
+        result.extend(unwrap_resolved(self.ha_resolved))
         for hm in self.ha_maps:
             result.extend(hm.ips)
         return result
@@ -342,10 +352,11 @@ class DomainIpUpdater:
             for i in mp.ips:
                 ips[i] = "ok"
             for d in mp.domains:
-                i = self.ha_resolved.get(d, "")
-                if i == "":
+                ip = self.ha_resolved.get(d, [])
+                if not ip:
                     continue
-                ips[i] = d
+                for i in ip:
+                    ips[i] = d
             hap.bulk_renew_map(mp.mapfile, ips)
 
     def update_all(self):
